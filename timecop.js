@@ -20,7 +20,7 @@ var jiraurl  = "https://jira.zivtech.com/";
  *   Jira permissions to access this page.
  *   https://jira.zivtech.com/secure/admin/user/UserBrowser.jspa
  */
-var ignoreUsers = ['archive', 'sysadmin', 'testguest', 'Alex', 'samantha', 'allie'];
+var ignoreUsers = ['archive', 'sysadmin', 'testguest', 'Alex', 'samantha', 'allie', 'jdelaigle', 'MoGillette'];
 
 function authenticate() {
   var params = {
@@ -38,7 +38,6 @@ function authenticate() {
  * @param query
  *  The API endpoint you want to hit. Include query parameters.
  */
-
 function callJira(query) {
   var data = UrlFetchApp.fetch( jiraurl + query, authenticate() );
   data = data.getContentText();
@@ -66,9 +65,10 @@ function getYesterday() {
 
   if (yesterday.getDay() >= 5) {
     yesterday = false;
-  } else if(yesterday.getDay() == 0) {
-    yesterday.setDate(yesterday.getDate() - 2);
   } else {
+    if (yesterday.getDay() == 0) {
+    yesterday.setDate(yesterday.getDate() - 2);
+    }
     // Format to work in Jira filter.
     yesterday = yesterday.toISOString().substr(0,10);
   }
@@ -77,54 +77,72 @@ function getYesterday() {
 }
 
 /**
- * Function checking tracked time and acting on its findings.
+ * Fetch a user's worklogs and determine if they've tracked all their time.
  *
- * @TODO: Break apart into discrete functions with one job per function.
+ * @param username
+ *  The Jira username of the person whose time should be fetched.
  */
-function getTimeTracked() {
+function getTimeTracked(username) {
   var yesterday = getYesterday();
   if (yesterday) {
-    // At this point, clear old data out of spreadsheet.
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    sheet.clearContents();
+    // Get tracked time. Assume guilty until proven innocent.
+    var query = "dateFrom=" + yesterday;
+    query += "&dateTo=" + yesterday;
+    query += "&username=" + username;
+    var worklogs = callJira("rest/tempo-timesheets/3/worklogs/?" + query);
+    var time = {isTimeTracked: false, totalTime: 0};
 
-    var users = getUsers();
-    for (i = 0; i < users.length; ++i) {
-      var user = users[i];
-      if (ignoreUsers.indexOf(user['name']) == -1) {
-        var query = "dateFrom=" + yesterday;
-        query += "&dateTo=" + yesterday;
-        query += "&username=" + user['name'];
+    // Sum up total time and act on findings.
+    for (n = 0; n < worklogs.length; ++n) {
+      var worklog = worklogs[n];
+      var worklogTime = worklog['timeSpentSeconds'];
+      time.totalTime += worklogTime;
+    }
+    time.totalTime = time.totalTime / 3600;
+    if (time.totalTime >= 6.95) {
+      time.isTimeTracked = true;
+    }
+    return time;
+  }
+}
 
-        // Get tracked time. Assume guilty until proven innocent.
-        var worklogs = callJira("rest/tempo-timesheets/3/worklogs/?" + query);
-        var isTimeTracked = "No";
-        var totalTime = 0;
+/**
+ * Sends an email reminding a user to track his or her time.
+ *
+ * @param email
+ *  The email address to which the email should be sent.
+ */
+function sendEmail(email) {
+  MailApp.sendEmail({
+    to: email,
+    subject: "You didn't track all your time yesterday!",
+    htmlBody: 'Tsk tsk. Go finish up, you sinner.<br /><br />' +
+    'You say: <a href="https://jira.zivtech.com/secure/TempoUserBoard!timesheet.jspa">"I\'m so sorry, I\'ll do that right away!"<br />',
+    noReply: true
+  });
+}
 
-        for (n = 0; n < worklogs.length; ++n) {
-          var worklog = worklogs[n];
-          var time = worklog['timeSpentSeconds'];
-          totalTime += time;
-        }
+/**
+ * Function checking tracked time and acting on its findings.
+ */
+function checkTime() {
 
-        totalTime = totalTime / 3600;
-        if (totalTime >= 6.95) {
-          isTimeTracked = 'Yes!';
-        }
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  sheet.clearContents();
 
-        // Print findings to a new row.
-        sheet.appendRow([user['displayName'], totalTime, isTimeTracked]);
+  var users = getUsers();
 
-        // Send email if time not tracked
-        if (user['emailAddress'] == 'jkaeser@zivtech.com') {
-          MailApp.sendEmail({
-            to: user['emailAddress'],
-            subject: "You didn't track all your time yesterday!",
-            htmlBody: 'Tsk tsk. Go finish up, you sinner.<br /><br />' +
-            'You say: <a href="https://jira.zivtech.com/secure/TempoUserBoard!timesheet.jspa">"I\'m so sorry, I\'ll do that right away!"<br />',
-            noReply: true
-          });
-        };
+  for (i = 0; i < users.length; ++i) {
+    var user = users[i];
+    if (ignoreUsers.indexOf(user['name']) == -1) {
+      var time = getTimeTracked(user['name']);
+      if (time.isTimeTracked) {
+        sheet.appendRow([user['displayName'], time.totalTime, 'Yes!']);
+      } else if (time.isTimeTracked === false) {
+        sheet.appendRow([user['displayName'], time.totalTime, 'No']);
+        sendEmail(user['emailAddress']);
+      } else {
+        Logger.log("Could not determine if " + user['displayName'] + " tracked all of his or her time.")
       };
     };
   };
