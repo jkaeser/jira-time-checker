@@ -3,9 +3,9 @@
  * https://github.com/chrisurban/jira-sprint-reporting/blob/master/general-query.gs
  */
 
-var jirauser = "john";
-var jiraauth = "i7!1a@8KEmzC3CJz";
-var jiraurl  = "https://jira.zivtech.com/";
+var jirauser = "jirausername";
+var jiraauth = "seriouslysecurepassword";
+var jiraurl  = "https://jira.example.com/";
 
 /**
  *  Users included in this array will be ignored by the script. Their time will
@@ -36,7 +36,7 @@ function authenticate() {
  * Helper function that makes an API call to Jira.
  *
  * @param query
- *  The API endpoint you want to hit. Include query parameters.
+ *  string; The API endpoint you want to hit. Include query parameters.
  */
 function callJira(query) {
   var data = UrlFetchApp.fetch( jiraurl + query, authenticate() );
@@ -47,75 +47,78 @@ function callJira(query) {
 }
 
 function getUsers() {
-  var zivtechUsers = [];
   var users = callJira("rest/api/2/user/search?startAt=0&maxResults=1000&username=zivtech");
 
   return users;
 }
 
 /**
- * Function returning the previous working day.
+ * Function returning yesterday's date and the date of the first day of the week.
  *
  * I'm using the term 'yesterday' a bit liberally here. In most cases the
  * previous working day is the same as yesterday. The only exception is Sunday.
  */
-function getYesterday() {
-  var yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
+function getDates() {
+  var dates = {
+    yesterday : new Date(),
+    firstDayInWeek : new Date(),
+  };
 
-  if (yesterday.getDay() >= 5) {
-    yesterday = false;
+  dates.yesterday.setDate(dates.yesterday.getDate() - 1);
+  dates.firstDayInWeek.setDate(dates.firstDayInWeek.getDate() - dates.firstDayInWeek.getDay());
+
+  if (dates.yesterday.getDay() >= 5) {
+    dates.yesterday = false;
   } else {
-    if (yesterday.getDay() == 0) {
-    yesterday.setDate(yesterday.getDate() - 2);
+    if (dates.yesterday.getDay() == 0) {
+    dates.yesterday.setDate(dates.yesterday.getDate() - 2);
     }
-    // Format to work in Jira filter.
-    yesterday = yesterday.toISOString().substr(0,10);
+    // Format to work in Jira filter. Consider making a small helper function.
+    dates.yesterday = dates.yesterday.toISOString().substr(0,10);
+    dates.firstDayInWeek = dates.firstDayInWeek.toISOString().substr(0,10);
   }
 
-  return yesterday;
+  return dates;
 }
 
 /**
  * Fetch a user's worklogs and determine if they've tracked all their time.
  *
  * @param username
- *  The Jira username of the person whose time should be fetched.
+ *  string; The Jira username of the person whose time should be fetched.
+ * @param dateFrom
+ *  string; The date you want to collect worklogs from in yyyy-mm-dd format.
+ * @param dateTo
+ *  string; The date you want to collect worklogs to in yyyy-mm-dd format.
  */
-function getTimeTracked(username) {
-  var yesterday = getYesterday();
-  if (yesterday) {
-    // Get tracked time. Assume guilty until proven innocent.
-    var query = "dateFrom=" + yesterday;
-    query += "&dateTo=" + yesterday;
-    query += "&username=" + username;
-    var worklogs = callJira("rest/tempo-timesheets/3/worklogs/?" + query);
-    var time = {isTimeTracked: false, totalTime: 0};
+function getTimeTracked(username, dateFrom, dateTo) {
+  var query = "dateFrom=" + dateFrom;
+  query += "&dateTo=" + dateTo;
+  query += "&username=" + username;
 
-    // Sum up total time and act on findings.
-    for (n = 0; n < worklogs.length; ++n) {
-      var worklog = worklogs[n];
-      var worklogTime = worklog['timeSpentSeconds'];
-      time.totalTime += worklogTime;
-    }
-    time.totalTime = time.totalTime / 3600;
-    if (time.totalTime >= 6.95) {
-      time.isTimeTracked = true;
-    }
-    return time;
+  var worklogs = callJira("rest/tempo-timesheets/3/worklogs/?" + query);
+  var time = 0;
+
+  for (n = 0; n < worklogs.length; ++n) {
+    var worklog = worklogs[n];
+    var worklogTime = worklog['timeSpentSeconds'];
+    time += worklogTime;
   }
+  time = time / 3600;
+
+  return time;
 }
 
 /**
  * Sends an email reminding a user to track his or her time.
  *
  * @param email
- *  The email address to which the email should be sent.
+ *  string; The email address to which the email should be sent.
  */
 function sendEmail(email) {
   MailApp.sendEmail({
     to: email,
-    subject: "You didn't track all your time yesterday!",
+    subject: "You haven't tracked all your time this week!",
     htmlBody: 'Tsk tsk. Go finish up, you sinner.<br /><br />' +
     'You say: <a href="https://jira.zivtech.com/secure/TempoUserBoard!timesheet.jspa">"I\'m so sorry, I\'ll do that right away!"<br />',
     noReply: true
@@ -126,23 +129,30 @@ function sendEmail(email) {
  * Function checking tracked time and acting on its findings.
  */
 function checkTime() {
+  var dates = getDates();
+  var timeRequired = new Date();
+  timeRequired = timeRequired.getDay() - 1;
+  timeRequired = timeRequired * 7;
 
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  sheet.clearContents();
+  if (dates.yesterday) {
 
-  var users = getUsers();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    sheet.clearContents();
 
-  for (i = 0; i < users.length; ++i) {
-    var user = users[i];
-    if (ignoreUsers.indexOf(user['name']) == -1) {
-      var time = getTimeTracked(user['name']);
-      if (time.isTimeTracked) {
-        sheet.appendRow([user['displayName'], time.totalTime, 'Yes!']);
-      } else if (time.isTimeTracked === false) {
-        sheet.appendRow([user['displayName'], time.totalTime, 'No']);
-        sendEmail(user['emailAddress']);
-      } else {
-        Logger.log("Could not determine if " + user['displayName'] + " tracked all of his or her time.")
+    var users = getUsers();
+
+    for (i = 0; i < users.length; ++i) {
+      var user = users[i];
+      if (ignoreUsers.indexOf(user['name']) == -1) {
+        var time = getTimeTracked(user['name'], dates.firstDayInWeek, dates.yesterday);
+        if (time >= timeRequired) {
+          sheet.appendRow([user['displayName'], time, 'Yes!']);
+        } else if (time < timeRequired) {
+          sheet.appendRow([user['displayName'], time, 'No']);
+          sendEmail(user['emailAddress']);
+        } else {
+          Logger.log("Could not determine if " + user['displayName'] + " tracked all of his or her time.")
+        };
       };
     };
   };
