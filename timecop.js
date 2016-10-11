@@ -68,18 +68,18 @@ function getUsers() {
  */
 function getDates() {
     var dates = {
-        yesterday: new Date(),
         firstDayInWeek: new Date(),
+        yesterday: new Date(),
     };
 
-    dates.yesterday.setDate(dates.yesterday.getDate() - 1);
     dates.firstDayInWeek.setDate(dates.firstDayInWeek.getDate() - dates.firstDayInWeek.getDay());
+    dates.yesterday.setDate(dates.yesterday.getDate() - 1);
 
     // If yesterday was Sunday, get last week's range.
     if (dates.yesterday.getDay() == 0) {
-        dates.yesterday.setDate(dates.yesterday.getDate() - 2);
         dates.firstDayInWeek.setDate(dates.firstDayInWeek.getDate() - 6);
-    };
+        dates.yesterday.setDate(dates.yesterday.getDate() - 2);
+    }
 
     return dates;
 }
