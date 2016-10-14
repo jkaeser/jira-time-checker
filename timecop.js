@@ -162,7 +162,10 @@ function sendEmail(email, dateFirst, dateLast, timeTracked, timeRequired) {
                 '. That means you are missing <strong>' + timeMissing +
                 '</strong> hours.<br /><br /> You say: ' +
                 '<a href="https://jira.zivtech.com/secure/TempoUserBoard!timesheet.jspa">' +
-                '"I\'m so sorry, I\'ll do that right away!"</a><br /><br />',
+                '"I\'m so sorry, I\'ll fix that right away!"</a><br /><br />' +
+                '<br /><br /><br /><em>Questions about this email? Feel you ' +
+                'have been wrongly accused? Ping John. He\'s responsible ' +
+                'for this monster.</em>',
             noReply: true
         });
     }
@@ -173,7 +176,8 @@ function sendEmail(email, dateFirst, dateLast, timeTracked, timeRequired) {
  */
 function checkTime() {
     var dates = getDates();
-    var timeRequired = 7 * (dates.yesterday.getDay());
+    var yesterdayDay = dates.yesterday.getDay();
+    var timeRequired = 7 * (yesterdayDay);
     dates = formatDates(dates);
 
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
@@ -192,7 +196,7 @@ function checkTime() {
             } else if (time < timeRequired) {
                 sheet.appendRow([user['displayName'], time, 'No', dates.firstDayInWeek, dates.yesterday]);
                 // Don't send emails on weekends.
-                if (dates.yesterday < 5) {
+                if (yesterdayDay < 5) {
                     sendEmail(user['emailAddress'], dates.firstDayInWeek, dates.yesterday, time, timeRequired);
                 }
             } else {
