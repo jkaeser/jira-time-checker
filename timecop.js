@@ -20,8 +20,11 @@ var JIRA_URL = "https://jira.example.com/";
  *   Jira permissions to access this page.
  *   https://jira.zivtech.com/secure/admin/user/UserBrowser.jspa
  */
-var IGNORE_USERS = ['archive', 'sysadmin', 'testguest', 'Alex', 'samantha',
+var IGNORE_USERS = ['archiver', 'archive', 'sysadmin', 'testguest', 'Alex', 'samantha',
                    'allie', 'jdelaigle', 'MoGillette'];
+
+// Zivtech Holidays/PTO project ID number.
+var PID_PTO = 12024;
 
 function authenticate() {
     var params = {
@@ -118,6 +121,13 @@ function getTimeTracked(username, dateFrom, dateTo) {
 
     for (n = 0; n < worklogs.length; ++n) {
         var worklog = worklogs[n];
+        // Convert 8 hours PTO/Holiday worklogs to 7 hours.
+        //   Zivtech tracks 8 hours for PTO/Holiday days. This decision was made
+        //   to ensure payroll is accurate. This program needs to ensure a "full
+        //   day" of work always equals 7 hours to properly make decisions.
+        if (worklog['issue']['projectId'] === PID_PTO && worklog['timeSpentSeconds'] === 28800) {
+          worklog['timeSpentSeconds'] = 25200;
+        }
         var worklogTime = worklog['timeSpentSeconds'];
         time += worklogTime;
     }
